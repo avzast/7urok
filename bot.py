@@ -9,7 +9,8 @@
 Что умеет бот:
   - кнопки «Туры», «Заявка», «Контакты»;
   - ИИ-консультант (system prompt лежит в system_prompt.txt) отвечает на вопросы о турах;
-  - пошаговая заявка на подбор тура: направление → даты → гости → имя → телефон → подтверждение.
+  - заявка на подбор тура через JSON: модель достаёт поля (направление, даты, гости, имя, телефон)
+    из сообщения гостя, код проверяет их и переспрашивает недостающее; затем подтверждение.
 """
 import json
 import os
@@ -22,6 +23,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 PROMPT_FILE = BASE_DIR / "system_prompt.txt"
+EXTRACT_FILE = BASE_DIR / "extract_prompt.txt"  # промпт для разбора заявки в JSON
 REQUESTS_FILE = BASE_DIR / "requests.jsonl"  # заявки; в .gitignore, там телефоны клиентов
 TZ = timezone(timedelta(hours=5))  # Астана, UTC+5
 
@@ -83,16 +85,19 @@ def contacts_text() -> str:
             f"☎️ {AGENCY['phone']} (менеджер {AGENCY['manager']})")
 
 
-def build_system_prompt() -> str:
-    """Собирает system prompt: текст из system_prompt.txt + каталог туров и контакты."""
+def build_system_prompt(template: str | None = None) -> str:
+    """Собирает system prompt: текст из system_prompt.txt + каталог туров и контакты.
+
+    template — необязательный готовый текст шаблона (нужен, чтобы сравнивать версии промпта)."""
     catalog = "\n".join(
         f"- {t['title']}: {t['nights']} ночей, {t['hotel']}, {t['meal']}; лучший сезон: {t['season']}; "
         f"особенности: {t['highlights']}; цена от {money(t['price'])} за человека."
         for t in TOURS)
     contacts = (f"Агентство «{AGENCY['name']}», {AGENCY['city']}, {AGENCY['address']}. "
                 f"Часы работы: {AGENCY['hours']}. Телефон: {AGENCY['phone']}, менеджер {AGENCY['manager']}.")
-    text = PROMPT_FILE.read_text(encoding="utf-8")
-    return text.replace("{{КАТАЛОГ}}", catalog).replace("{{КОНТАКТЫ}}", contacts)
+    text = template if template is not None else PROMPT_FILE.read_text(encoding="utf-8")
+    return (text.replace("{{КАТАЛОГ}}", catalog).replace("{{КОНТАКТЫ}}", contacts)
+            .replace("{{МЕНЕДЖЕР}}", AGENCY["manager"]).replace("{{ТЕЛЕФОН}}", AGENCY["phone"]))
 
 
 # ---------------------------------------------------------------- вспомогательное
@@ -118,7 +123,7 @@ AI_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Цепочка бесплатных моделей: если первая перегружена (429) или вернула пустой ответ — берём следующую.
 AI_MODELS_DEFAULT = ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free",
                      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "openrouter/free"]
-AI_MAX_TOKENS = 1200     # запас: часть моделей тратит токены на «рассуждения» до ответа
+AI_MAX_TOKENS = 2500     # запас: часть моделей тратит токены на «рассуждения» до ответа
 AI_TIMEOUT = 30          # секунд на одну модель
 HISTORY_LIMIT = 10       # сколько последних сообщений диалога помнить
 USER_MESSAGE_MAX = 1000  # длинные сообщения обрезаем
@@ -137,20 +142,29 @@ def ask_ai(system_prompt: str, history: list[dict]) -> str:
         raise RuntimeError("OPENROUTER_API_KEY не задан в .env")
     messages = [{"role": "system", "content": system_prompt}] + history
     last_error = "нет моделей"
+    partial = None  # обрезанный по длине ответ: берём, только если ни одна модель не дала полный
     for model in ai_models():
         try:
             resp = http_json(AI_URL, {"model": model, "messages": messages, "max_tokens": AI_MAX_TOKENS},
                              timeout=AI_TIMEOUT, headers={"Authorization": f"Bearer {key}"})
-            answer = (resp["choices"][0]["message"].get("content") or "").strip()
-            if answer:
+            choice = resp["choices"][0]
+            answer = (choice["message"].get("content") or "").strip()
+            if answer and choice.get("finish_reason") == "length":
+                partial = partial or answer
+                last_error = f"{model}: ответ обрезан по длине"
+            elif answer:
                 print(f"ИИ ответил: {resp.get('model', model)}")
                 return answer
-            last_error = f"{model}: пустой ответ"
+            else:
+                last_error = f"{model}: пустой ответ"
         except urllib.error.HTTPError as exc:
             last_error = f"{model}: HTTP {exc.code}"
         except Exception as exc:
             last_error = f"{model}: {exc}"
         print("ИИ пропуск:", last_error)
+    if partial:  # лучше обрезать до последнего законченного предложения, чем оборвать на полуслове
+        cut = max(partial.rfind(c) for c in ".!?")
+        return partial[:cut + 1] if cut > 40 else partial
     raise RuntimeError(last_error)
 
 
@@ -170,8 +184,14 @@ CONFIRM_KB = keyboard([[BTN_SEND, BTN_CANCEL]])
 DEST_KB = keyboard([[t["title"].split(",")[0] for t in TOURS[i:i + 3]] for i in range(0, len(TOURS), 3)]
                    + [[BTN_CANCEL]])
 
-# ---------------------------------------------------------------- шаги заявки
-STEPS = ["dest", "dates", "people", "name", "phone"]
+# ---------------------------------------------------------------- заявка: поля, проверка, JSON
+FIELDS = ["dest", "dates", "people", "name", "phone"]
+FIELD_TITLES = {"dest": "🌍 Направление", "dates": "🗓 Даты", "people": "👥 Гости", "name": "🙂 Имя",
+                "phone": "☎️ Телефон"}
+FIELD_ASK = {"dest": "направление", "dates": "даты поездки", "people": "сколько человек поедет",
+             "name": "ваше имя", "phone": "номер телефона"}
+# запуск заявки из обычной переписки, если гость сам просит оформить
+BOOKING_WORDS = re.compile(r"(?i)заявк|забронировать|хочу поехать|хочу в тур")
 QUESTIONS = {
     "dest": ("Куда хотите поехать? Выберите направление кнопкой или напишите своё.", DEST_KB),
     "dates": ("Когда планируете поездку? Например: «10–17 января» или «в мае».", CANCEL_KB),
@@ -196,6 +216,52 @@ def validate(step: str, text: str) -> tuple[str | None, str]:
     return text, ""
 
 
+def parse_json(raw: str) -> dict | None:
+    """Достаёт JSON-объект из ответа модели (модель может добавить текст или ```-обёртку)."""
+    match = re.search(r"\{.*\}", raw, re.S)
+    if not match:
+        return None
+    try:
+        obj = json.loads(match.group(0))
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def check_field(field: str, raw, source_text: str) -> tuple[str | None, str]:
+    """Проверяет значение, которое вернула модель. (значение, ошибка): оба пустые — поля в сообщении нет."""
+    if raw is None:
+        return None, ""
+    value = " ".join(str(raw).split())
+    if not value or value.lower() in ("null", "none", "нет", "-"):
+        return None, ""
+    value, error = validate(field, value)
+    if value is None:
+        return None, error
+    # защита от выдумок модели: телефон и имя обязаны буквально присутствовать в сообщении гостя
+    if field == "phone" and re.sub(r"\D", "", value) not in re.sub(r"\D", "", source_text):
+        return None, ""
+    if field == "name" and value.split()[0].lower() not in source_text.lower():
+        return None, ""
+    return value, ""
+
+
+def extract_fields(extract_prompt: str, text: str, known: dict, asked: str) -> dict | None:
+    """Просит модель вернуть JSON с полями заявки. None — если ИИ недоступен или вернул не JSON."""
+    user = (f"Уже известно: {json.dumps(known, ensure_ascii=False)}\n"
+            f"Бот спросил у гостя: {asked}\n"
+            f"Сообщение гостя: {text[:USER_MESSAGE_MAX]}")
+    try:
+        raw = ask_ai(extract_prompt, [{"role": "user", "content": user}])
+    except Exception as exc:
+        print("разбор заявки: ИИ недоступен:", exc)
+        return None
+    obj = parse_json(raw)
+    if obj is None:
+        print("разбор заявки: ИИ вернул не JSON:", raw[:120])
+    return obj
+
+
 def summary(data: dict) -> str:
     return (f"Проверьте заявку:\n\n"
             f"🌍 Направление: {data['dest']}\n"
@@ -208,11 +274,12 @@ def summary(data: dict) -> str:
 
 # ---------------------------------------------------------------- бот
 class Bot:
-    def __init__(self, token: str, system_prompt: str):
+    def __init__(self, token: str, system_prompt: str, extract_prompt: str):
         self.base = f"https://api.telegram.org/bot{token}/"
         self.system_prompt = system_prompt
+        self.extract_prompt = extract_prompt
         self.history: dict[int, list[dict]] = {}   # память диалога с ИИ (только в оперативной памяти)
-        self.booking: dict[int, dict] = {}         # состояние заявки: {"step": ..., "data": {...}}
+        self.booking: dict[int, dict] = {}         # заявка: {"data": {поля}, "confirm": bool}
         self.recent: dict[int, list[float]] = {}   # для ограничения частоты сообщений
 
     def call(self, method: str, **params) -> dict:
@@ -234,43 +301,63 @@ class Bot:
         return len(times) > limit
 
     # ----- заявка
-    def ask_step(self, chat_id: int) -> None:
+    def reask(self, chat_id: int, prefix: str = "") -> None:
+        """Показывает, что уже записано, и просит недостающее (или предлагает подтвердить заявку)."""
         state = self.booking[chat_id]
-        if state["step"] == "confirm":
-            self.send(chat_id, summary(state["data"]), CONFIRM_KB)
+        data = state["data"]
+        missing = [f for f in FIELDS if f not in data]
+        if not missing:
+            state["confirm"] = True
+            self.send(chat_id, (prefix + "\n\n" if prefix else "") + summary(data), CONFIRM_KB)
             return
-        question, kb = QUESTIONS[state["step"]]
-        self.send(chat_id, question, kb)
+        parts = [prefix] if prefix else []
+        if data:
+            parts.append("Записала: " + "; ".join(f"{FIELD_TITLES[f]}: {data[f]}" for f in FIELDS if f in data))
+            parts.append("Осталось уточнить: " + ", ".join(FIELD_ASK[f] for f in missing) + ".")
+        else:
+            parts.append("Опишите поездку своими словами: куда, когда, сколько человек, ваше имя и телефон. "
+                         "Можно по частям, я всё запомню.")
+        self.send(chat_id, "\n".join(parts), DEST_KB if missing[0] == "dest" else CANCEL_KB)
 
     def start_booking(self, chat_id: int) -> None:
-        self.booking[chat_id] = {"step": "dest", "data": {}}
-        self.ask_step(chat_id)
+        self.booking[chat_id] = {"data": {}, "confirm": False}
+        self.reask(chat_id)
 
     def cancel_booking(self, chat_id: int) -> None:
         self.booking.pop(chat_id, None)
         self.send(chat_id, "Хорошо, заявку отменили. Если передумаете — нажмите «📝 Заявка».")
 
     def booking_answer(self, chat_id: int, text: str, user: dict) -> None:
+        """Сообщение гостя во время заявки: модель достаёт поля в JSON, код проверяет, бот переспрашивает."""
         state = self.booking[chat_id]
-        step = state["step"]
-        if step == "confirm":
+        data = state["data"]
+        if state.get("confirm"):
             if text == BTN_SEND:
-                self.finish_booking(chat_id, state["data"], user)
+                self.finish_booking(chat_id, data, user)
             else:
                 self.send(chat_id, "Нажмите «✅ Отправить» или «❌ Отмена».", CONFIRM_KB)
             return
-        value, error = validate(step, text)
-        if value is None:
-            self.send(chat_id, error, QUESTIONS[step][1])
+        self.call("sendChatAction", chat_id=chat_id, action="typing")
+        first_missing = next(f for f in FIELDS if f not in data)
+        found = extract_fields(self.extract_prompt, text, data, QUESTIONS[first_missing][0])
+        errors, updated = [], False
+        if found is None:
+            # запасной путь: ИИ недоступен или ответил не JSON — весь текст относим к первому недостающему полю
+            found = {first_missing: text}
+        for field in FIELDS:
+            value, error = check_field(field, found.get(field), text)
+            if value is not None:
+                if data.get(field) != value:  # новое или исправленное значение
+                    updated = True
+                data[field] = value
+            elif error:
+                errors.append(error)
+        if errors:
+            self.send(chat_id, errors[0], DEST_KB if first_missing == "dest" else CANCEL_KB)
+            if updated:
+                self.reask(chat_id)
             return
-        state["data"][step] = value
-        nxt = STEPS.index(step) + 1
-        if nxt < len(STEPS):
-            state["step"] = STEPS[nxt]
-            self.ask_step(chat_id)
-        else:
-            state["step"] = "confirm"
-            self.send(chat_id, summary(state["data"]), CONFIRM_KB)
+        self.reask(chat_id, "" if updated else "Не нашла в сообщении данных для заявки.")
 
     def finish_booking(self, chat_id: int, data: dict, user: dict) -> None:
         record = {"time": datetime.now(TZ).isoformat(timespec="seconds"), "chat_id": chat_id,
@@ -319,14 +406,18 @@ class Bot:
         if text == BTN_TOURS or command == "/tours":
             self.send(chat_id, tours_text(), CANCEL_KB if in_booking else MAIN_KB)
             if in_booking:
-                self.ask_step(chat_id)
+                self.reask(chat_id)
             return
         if text == BTN_CONTACTS or command == "/contacts":
             self.send(chat_id, contacts_text(), CANCEL_KB if in_booking else MAIN_KB)
             if in_booking:
-                self.ask_step(chat_id)
+                self.reask(chat_id)
             return
         if in_booking:
+            self.booking_answer(chat_id, text, message.get("from") or {})
+            return
+        if BOOKING_WORDS.search(text):  # гость сам просит оформить заявку: сразу разбираем его сообщение
+            self.booking[chat_id] = {"data": {}, "confirm": False}
             self.booking_answer(chat_id, text, message.get("from") or {})
             return
         self.answer_with_ai(chat_id, text)
@@ -388,4 +479,4 @@ if __name__ == "__main__":
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise SystemExit("BOT_TOKEN не найден в .env")
-    Bot(token, build_system_prompt()).run()
+    Bot(token, build_system_prompt(), EXTRACT_FILE.read_text(encoding="utf-8")).run()
