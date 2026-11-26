@@ -163,7 +163,11 @@ def parse_reply(raw: str) -> tuple[str, str]:
 _MARKDOWN_RE = re.compile(r'\*{1,3}\S|\*{1,3}$|^#{1,3}\s', re.M)
 _PROMPT_LEAK_RE = re.compile(r'(?i)системн[ыйого]+ промпт|мои инструкци[ия]|system\s*prompt')
 _TY_RE = re.compile(r"(?i)\b(?:ты|тебе|тебя|тобой|твой|твоя|твоё|твои|твоим)\b")
-_PRICE_RE = re.compile(r'([\d][\d\s]{2,})\s*₸')  # числа длиннее 2 цифр рядом с ₸
+# сумма в тенге: число (290 000, 290000, 1,5), необязательно «тыс.»/«млн», затем ₸, «тенге», «тг» или KZT
+_PRICE_RE = re.compile(
+    r"(?i)(\d{1,3}(?:[\s.,]\d{3})+(?!\d)|\d+(?:[.,]\d+)?)"
+    r"\s*(тыс(?:яч[аиу]?|\.)?|млн\.?|миллион(?:а|ов)?)?"
+    r"\s*(?:₸|(?:тенге|тг|kzt)(?![\w-]))")
 
 
 LEAK_SECTIONS = ("СТИЛЬ", "ФОРМАТ ОТВЕТА", "ЧТО ТЫ ДЕЛАЕШЬ", "ЧЕГО ТЫ НЕ ДЕЛАЕШЬ", "ПОСТОРОННИЕ ТЕМЫ",
@@ -199,6 +203,20 @@ def leaks_prompt_text(answer: str) -> bool:
     return any(" ".join(words[i:i + LEAK_WORDS]) in shingles for i in range(len(words) - LEAK_WORDS + 1))
 
 
+def prices_in(text: str) -> list[int]:
+    """Все суммы в тенге из текста, приведённые к целому числу: «1,5 млн тенге» → 1500000."""
+    prices = []
+    for number, unit in _PRICE_RE.findall(text):
+        if re.fullmatch(r"\d{1,3}(?:[\s.,]\d{3})+", number):  # разряды: 290 000, 290,000
+            value = int(re.sub(r"\D", "", number))
+        else:
+            value = float(number.replace(",", "."))
+        unit = unit.lower()
+        multiplier = 1000 if unit.startswith("тыс") else 1_000_000 if unit else 1
+        prices.append(round(value * multiplier))
+    return prices
+
+
 def validate_answer(answer: str) -> list[str]:
     """Проверяет текст ответа гостю на нарушения system prompt.
 
@@ -206,9 +224,8 @@ def validate_answer(answer: str) -> list[str]:
     Используется как дополнительный фильтр в accept: модель получит повторную попытку."""
     violations = []
 
-    # 1. Итоговые суммы: любое число в ₸, которого нет в каталоге — модель посчитала сама
-    for m in _PRICE_RE.finditer(answer):
-        num = int(re.sub(r'\s', '', m.group(1)))
+    # 1. Итоговые суммы: любая сумма в тенге, которой нет в каталоге — модель посчитала сама
+    for num in prices_in(answer):
         if num not in ALLOWED_PRICES:
             violations.append(f"calc_price:{num}")
 
