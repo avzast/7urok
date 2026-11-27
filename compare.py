@@ -6,13 +6,15 @@
 
   python -X utf8 compare.py --check   — проверить вопросы и ключ, без запросов
   python -X utf8 compare.py           — запустить сравнение
+  python -X utf8 compare.py --label "после правок промпта"
+                                      — записать новый раздел рядом со старым
 
 Ключ OPENROUTER_API_KEY берётся из .env.
 """
+import argparse
 import json
 import os
 import re
-import sys
 import time
 import urllib.error
 from datetime import datetime
@@ -97,10 +99,10 @@ def block(text: str) -> str:
     return f"{fence}text\n{text}\n{fence}"
 
 
-def render(questions: list[str], results: list[dict], started: str) -> str:
+def render(questions: list[str], results: list[dict], started: str, title: str = SECTION) -> str:
     """Раздел отчёта. results идут парами по вопросам: (вопрос 1, none), (вопрос 1, high), ..."""
     lines = [
-        SECTION, "",
+        title, "",
         f"Запуск `compare.py`: {started}. Модель `{MODEL}`, `max_tokens` = {MAX_TOKENS}. "
         "Каждый запрос состоит из system prompt бота и одного вопроса: без истории и без памятки "
         "`RULES_REMINDER`. По одной попытке, без повторов.", "",
@@ -141,6 +143,11 @@ def render(questions: list[str], results: list[dict], started: str) -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Сравнение reasoning none и high на трудных вопросах")
+    parser.add_argument("--check", action="store_true", help="только проверить вопросы и ключ, без запросов")
+    parser.add_argument("--label", default="", help="пометка в заголовке нового раздела отчёта")
+    args = parser.parse_args()
+    title = f"{SECTION} ({args.label})" if args.label else SECTION
     bot.load_env()
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
@@ -148,11 +155,11 @@ def main() -> None:
     questions = load_questions(CASES_FILE.read_text(encoding="utf-8"))
     system_prompt = bot.build_system_prompt()
     previous = REPORT_FILE.read_text(encoding="utf-8") if REPORT_FILE.exists() else ""
-    if SECTION in previous:
-        raise SystemExit(f"В {REPORT_FILE.name} уже есть раздел «{SECTION[3:]}». "
-                         "Удалите или переименуйте его перед новым запуском.")
-    if "--check" in sys.argv[1:]:
-        print(f"Модель: {MODEL}\nSystem prompt: {len(system_prompt)} символов\nКлюч: задан")
+    if title in previous.splitlines():
+        raise SystemExit(f"В {REPORT_FILE.name} уже есть раздел «{title[3:]}». "
+                         "Задайте другую пометку через --label.")
+    if args.check:
+        print(f"Модель: {MODEL}\nРаздел: {title[3:]}\nSystem prompt: {len(system_prompt)} символов\nКлюч: задан")
         for n, q in enumerate(questions, 1):
             print(f"{n}. {q}")
         print(f"Будет запросов: {len(questions) * len(EFFORTS)}. Сейчас ничего не отправлено.")
@@ -170,7 +177,7 @@ def main() -> None:
                   + (f", ошибка: {r['error']}" if r["error"] else ""), flush=True)
             # пишем после каждого запроса: если прервут, сделанное не пропадёт
             with REPORT_FILE.open("w", encoding="utf-8", newline="\n") as f:
-                f.write(head + render(questions, results, started))
+                f.write(head + render(questions, results, started, title))
     print(f"Готово: {len(results)} запросов, результат в {REPORT_FILE.name}")
 
 

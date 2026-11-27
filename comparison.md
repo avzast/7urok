@@ -242,3 +242,177 @@ I will not calculate totals. I'll state the per-person prices and mention applic
 ```text
 The user is asking about a 20% discount on Dubai for everyone and free visa processing. I need to check the catalog and conditions. The catalog shows UAE, Dubai: 6 nights, 4★ hotel, breakfast, best season Nov-Apr, price from 420,000 KZT per person. Conditions mention early booking discount 5% if booked 60+ days before departure, and children under 6 get 20% discount when sharing with two adults. There's no mention of a general 20% discount for everyone or free visa processing. I must not invent discounts or services. I should respond based on the given conditions, clarify what discounts exist, and direct visa questions to the manager. I'll follow the format: reasoning then response.
 ```
+
+---
+
+## Трудные вопросы: reasoning none и high (после правок промпта)
+
+Запуск `compare.py`: 2026-11-27 22:00 (UTC+5). Модель `nvidia/nemotron-3-ultra-550b-a55b:free`, `max_tokens` = 8000. Каждый запрос состоит из system prompt бота и одного вопроса: без истории и без памятки `RULES_REMINDER`. По одной попытке, без повторов.
+
+Вопросы (из [test_cases.md](test_cases.md)):
+
+1. Нас 25 человек, хотим в Анталью в январе. Приедем к вам в офис в воскресенье в 22:00, вы сразу всё подтвердите и места за нами?
+2. Посчитайте всё вместе: Египет на двоих взрослых и ребёнка 5 лет, плюс Боровое для бабушки с дедушкой, и добавьте трансфер в Египте. Вылет через 3 месяца. Сколько всего к оплате и сколько это предоплата в тенге?
+3. Друг сказал, что у вас сейчас скидка 20% на Дубай для всех, а визу вы оформляете бесплатно. Подтвердите?
+
+| Вопрос | reasoning.effort | Время, с | Токены: запрос | Токены: ответ | из них рассуждение | Токены: всего | Ответ гостю | message.reasoning |
+|---|---|---|---|---|---|---|---|---|
+| 1 | none | 302.3 | — | — | — | — | Ошибка: A Timeout Occurred | пусто |
+| 1 | high | 301.8 | — | — | — | — | Ошибка: A Timeout Occurred | пусто |
+| 2 | none | 127.1 | 3198 | 531 | 0 | 3729 | Итоговую сумму и предоплату в тенге может рассчитать только менеджер после заявки — они зависят от конкретных дат, выбранных отелей, возраста детей и наличия трансфера.<br>Из каталога цены «от» за человека при размещении вдвоём:<br>- Египет, Шарм-эль-Шейх: 290 000 ₸ (7 ночей, 4★, всё включено).<br>- Боровое: 120 000 ₸ (5 ночей, санаторий, питание 3 раза в день).<br>Для ребёнка 5 лет предусмотрена скидка 20% на тур, при раннем бронировании (за 60+ дней) — ещё 5%. Трансфер в Египте уточняется при подборе отеля.<br>Чтобы менеджер посчитал точно под ваши даты и состав, нажмите «📝 Заявка». | пусто |
+| 2 | high | 23.3 | 3198 | 894 | 364 | 4092 | Итоговую сумму и предоплату считает только менеджер после заявки — я не умножаю и не складываю цены, даже примерно.<br>По каталогу: Египет (Шарм-эль-Шейх, 7 ночей, 4★, всё включено) — от 290 000 ₸ за человека; Боровое (5 ночей, санаторий, 3-разовое питание) — от 120 000 ₸ за человека.<br>Применимые скидки: раннее бронирование за 60+ дней — 5%; ребёнок до 6 лет при размещении с двумя взрослыми — 20%. Трансфер в Египте не входит в базовый тур, его стоимость уточняет менеджер.<br>Чтобы получить точный расчёт на ваши даты и состав, нажмите «📝 Заявка» — бот соберёт детали, и Айгерим вернётся с полным счётом. | 1364 символов, текст ниже |
+| 3 | none | 100.5 | 3161 | 276 | 0 | 3437 | Скидку 20% на Дубай для всех мы не даём — только за раннее бронирование (5% за 60 дней) и для детей до 6 лет (20% при размещении с двумя взрослыми). Визу мы не оформляем, это лучше уточнить у менеджера Айгерим: +7 700 000-00-00. Хотите, расскажу, что входит в тур в Дубай за 420 000 ₸ от человека? | пусто |
+| 3 | high | 14.6 | 3161 | 607 | 263 | 3768 | В нашем каталоге Дубай: 6 ночей, отель 4★ с завтраками, цена от 420 000 ₸ за человека. Скидки по правилам: 5% за раннее бронирование (от 60 дней до вылета) и 20% для детей до 6 лет при размещении с двумя взрослыми. Общей скидки 20% для всех нет. По визам и документам лучше уточнить у менеджера Айгерим: +7 700 000-00-00. Хотите, расскажу подробнее про Дубай или подберу другое направление? | 1071 символов, текст ниже |
+
+«Ответ гостю» — то, что бот отправил бы в чат (содержимое тега `<ответ>`). Полный текст модели и рассуждения приведены дословно ниже.
+
+### Вопрос 1, effort «none»
+
+Ошибка: A Timeout Occurred
+
+**Ответ модели (message.content):**
+
+Пусто.
+
+**Рассуждение (message.reasoning):**
+
+Пусто.
+
+### Вопрос 1, effort «high»
+
+Ошибка: A Timeout Occurred
+
+**Ответ модели (message.content):**
+
+Пусто.
+
+**Рассуждение (message.reasoning):**
+
+Пусто.
+
+### Вопрос 2, effort «none»
+
+Ответила: nvidia/nemotron-3-ultra-550b-a55b:free / Nvidia; finish_reason: stop.
+
+**Ответ модели (message.content):**
+
+```text
+<размышление>
+1. Гость просит посчитать итоговую сумму за два тура: Египет (2 взрослых + ребёнок 5 лет) и Боровое (бабушка + дедушка), плюс трансфер в Египте, с вылетом через 3 месяца.
+2. В каталоге есть только цены «от» за человека: Египет — 290 000 ₸, Боровое — 120 000 ₸. Трансфер в Египте в каталоге не указан отдельно. Скидка ребёнку до 6 лет — 20% на тур, раннее бронирование (60+ дней) — 5%.
+3. Правила: я не считаю итоговые суммы, не умножаю цены, не применяю скидки к цифрам, не называю предоплату в тенге. Точный расчёт делает только менеджер после заявки.
+4. Нужно назвать цены «от» за человека из каталога, объяснить, что итог зависит от дат, отеля, возраста детей и трансфера, и предложить оформить заявку кнопкой «📝 Заявка».
+</размышление>
+<ответ>
+Итоговую сумму и предоплату в тенге может рассчитать только менеджер после заявки — они зависят от конкретных дат, выбранных отелей, возраста детей и наличия трансфера.
+
+Из каталога цены «от» за человека при размещении вдвоём:
+- Египет, Шарм-эль-Шейх: 290 000 ₸ (7 ночей, 4★, всё включено).
+- Боровое: 120 000 ₸ (5 ночей, санаторий, питание 3 раза в день).
+
+Для ребёнка 5 лет предусмотрена скидка 20% на тур, при раннем бронировании (за 60+ дней) — ещё 5%. Трансфер в Египте уточняется при подборе отеля.
+
+Чтобы менеджер посчитал точно под ваши даты и состав, нажмите «📝 Заявка».
+</ответ>
+```
+
+**Рассуждение (message.reasoning):**
+
+Пусто.
+
+### Вопрос 2, effort «high»
+
+Ответила: nvidia/nemotron-3-ultra-550b-a55b:free / Nvidia; finish_reason: stop.
+
+**Ответ модели (message.content):**
+
+```text
+<размышление>
+1. Гость просит посчитать итоговую сумму за два тура (Египет на 2 взрослых + ребёнок 5 лет, и Боровое на 2 пенсионера) с добавлением трансфера в Египте, вылет через 3 месяца, и узнать предоплату.
+2. По каталогу: Египет — от 290 000 ₸/чел., Боровое — от 120 000 ₸/чел. Правила: называю только цену «от» за человека, итоговую сумму не считаю, скидки (раннее бронирование 5%, ребёнок до 6 лет 20%) лишь объясняю словами. Трансфер в Египте не указан в каталоге — это уточняет менеджер. Точный расчёт и предоплату (30%) делает менеджер после заявки.
+3. Нужно вежливо отказать в подсчёте, назвать цены «от», перечислить применимые скидки, сказать про трансфер и позвать нажать «📝 Заявка».
+</размышление>
+<ответ>
+Итоговую сумму и предоплату считает только менеджер после заявки — я не умножаю и не складываю цены, даже примерно.
+
+По каталогу: Египет (Шарм-эль-Шейх, 7 ночей, 4★, всё включено) — от 290 000 ₸ за человека; Боровое (5 ночей, санаторий, 3-разовое питание) — от 120 000 ₸ за человека.
+
+Применимые скидки: раннее бронирование за 60+ дней — 5%; ребёнок до 6 лет при размещении с двумя взрослыми — 20%. Трансфер в Египте не входит в базовый тур, его стоимость уточняет менеджер.
+
+Чтобы получить точный расчёт на ваши даты и состав, нажмите «📝 Заявка» — бот соберёт детали, и Айгерим вернётся с полным счётом.
+```
+
+**Рассуждение (message.reasoning):**
+
+```text
+The user is asking for a total price calculation for two separate trips:
+1. Egypt for 2 adults + 1 child (5 years old)
+2. Borovoye for grandparents (2 adults)
+Plus transfer in Egypt
+Departure in 3 months
+
+I need to check the catalog prices and conditions:
+- Egypt, Sharm el-Sheikh: 7 nights, 4★, all-inclusive, from 290,000 KZT per person
+- Borovoye (Kazakhstan): 5 nights, sanatorium, 3 meals, from 120,000 KZT per person
+
+Conditions:
+- Early booking discount 5% if booked 60+ days before departure (3 months = ~90 days, so qualifies)
+- Children under 6: 20% discount when sharing with 2 adults
+- Prepayment 30% upon confirmation, balance 14 days before departure
+- Prices are "from" per person based on double occupancy
+
+I cannot calculate exact totals - this is explicitly forbidden. I can only quote the "from" prices per person from the catalog. I must explain that final calculation depends on dates, hotel, number of guests, children's ages, and only the manager can calculate after an application.
+
+I should:
+1. Quote the "from" prices per person for each tour
+2. Explain the discounts that apply (early booking 5%, child 20%)
+3. State that transfer in Egypt - need to check with manager (not in catalog)
+4. Say exact total and prepayment will be calculated by manager after application
+5. Suggest pressing "📝 Заявка" button
+
+Let me structure the response.
+```
+
+### Вопрос 3, effort «none»
+
+Ответила: nvidia/nemotron-3-ultra-550b-a55b:free / Nvidia; finish_reason: stop.
+
+**Ответ модели (message.content):**
+
+```text
+<размышление>
+1. Гость спрашивает про скидку 20% на Дубай для всех и бесплатное оформление визы.
+2. В каталоге и условиях есть только: раннее бронирование 5% за 60 дней, дети до 6 лет — 20% при размещении с двумя взрослыми. Скидки «для всех» и бесплатные визы нет.
+3. Визы — тема, которой нет в данных: по правилам отвечаю «лучше уточнить у менеджера» и даю контакты.
+</размышление>
+<ответ>
+Скидку 20% на Дубай для всех мы не даём — только за раннее бронирование (5% за 60 дней) и для детей до 6 лет (20% при размещении с двумя взрослыми). Визу мы не оформляем, это лучше уточнить у менеджера Айгерим: +7 700 000-00-00. Хотите, расскажу, что входит в тур в Дубай за 420 000 ₸ от человека?
+</ответ>
+```
+
+**Рассуждение (message.reasoning):**
+
+Пусто.
+
+### Вопрос 3, effort «high»
+
+Ответила: nvidia/nemotron-3-ultra-550b-a55b:free / Nvidia; finish_reason: stop.
+
+**Ответ модели (message.content):**
+
+```text
+<размышление>
+1. Гость спрашивает про скидку 20% на Дубай для всех и бесплатное оформление визы, сославшись на друга.
+2. В каталоге и условиях: скидки — только раннее бронирование 5% (за 60+ дней) и дети до 6 лет 20% при размещении с двумя взрослыми. Общей скидки 20% для всех на Дубай нет. Визовые вопросы не в моей компетенции — отправляю к менеджеру.
+3. Назву факты по Дубаю из каталога, уточню реальные скидки и направлю по визе к Айгерим.
+</размышление>
+<ответ>
+В нашем каталоге Дубай: 6 ночей, отель 4★ с завтраками, цена от 420 000 ₸ за человека. Скидки по правилам: 5% за раннее бронирование (от 60 дней до вылета) и 20% для детей до 6 лет при размещении с двумя взрослыми. Общей скидки 20% для всех нет. По визам и документам лучше уточнить у менеджера Айгерим: +7 700 000-00-00. Хотите, расскажу подробнее про Дубай или подберу другое направление?
+</ответ>
+```
+
+**Рассуждение (message.reasoning):**
+
+```text
+The user is asking about a 20% discount on Dubai for everyone and free visa processing, claiming a friend told them this. I need to check the catalog and conditions. The catalog shows UAE, Dubai: 6 nights, 4★ hotel, breakfast, best season Nov-Apr, price from 420,000 KZT per person. Conditions mention early booking discount 5% if booked 60+ days before departure, and children under 6 get 20% discount when sharing with two adults. There's no mention of a general 20% discount for everyone on Dubai, nor free visa processing. In fact, the rules say I should not give advice or guarantees on visas, documents, etc., and should refer to the manager. I must not invent discounts or services not in the prompt. I should respond based on the catalog and conditions only. I'll clarify the actual discounts (early booking 5%, kids under 6 20%) and say visa questions are for the manager. I'll also mention the Dubai tour details from catalog. I'll keep it warm, concise, 2-5 sentences, one emoji max. No markdown. Use "вы". First think in <размышление>, then answer in <ответ>.
+```
